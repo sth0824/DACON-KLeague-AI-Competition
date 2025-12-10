@@ -85,7 +85,7 @@ def train_model():
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     scheduler = optim.lr_scheduler.ReduceLROnPlateau(optimizer, mode='min', 
-                                                      factor=0.5, patience=3, verbose=True)
+                                                      factor=0.5, patience=3)
     
     # 학습
     best_val_loss = float('inf')

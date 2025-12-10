@@ -93,7 +93,17 @@ def inference():
     
     # sample_submission.csv와 동일한 순서로 정렬
     sample_submission = pd.read_csv(SAMPLE_SUBMISSION_CSV, encoding='utf-8')
-    submission = submission.set_index('game_episode').reindex(sample_submission['game_episode']).reset_index()
+    
+    # merge를 사용하여 안전하게 정렬 (없는 에피소드는 기본값으로 채움)
+    submission = sample_submission[['game_episode']].merge(
+        submission, 
+        on='game_episode', 
+        how='left'
+    )
+    
+    # NaN 값 처리 (예측되지 않은 에피소드의 경우 필드 중앙값 사용)
+    submission['end_x'] = submission['end_x'].fillna(FIELD_LENGTH / 2)
+    submission['end_y'] = submission['end_y'].fillna(FIELD_WIDTH / 2)
     
     # 저장 (UTF-8 인코딩, 대회 규칙 준수)
     output_path = 'submission.csv'
