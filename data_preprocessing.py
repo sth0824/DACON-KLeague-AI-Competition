@@ -8,16 +8,16 @@ import os
 from config import *
 
 def load_train_data() -> pd.DataFrame:
-    """훈련 데이터 로드"""
+    """훈련 데이터 로드 (UTF-8 인코딩, 대회 규칙 준수)"""
     print("Loading train data...")
-    df = pd.read_csv(TRAIN_CSV)
+    df = pd.read_csv(TRAIN_CSV, encoding='utf-8')
     print(f"Loaded {len(df)} rows")
     return df
 
 def load_test_data() -> pd.DataFrame:
-    """테스트 데이터 로드"""
+    """테스트 데이터 로드 (UTF-8 인코딩, 대회 규칙 준수)"""
     print("Loading test data...")
-    df = pd.read_csv(TEST_CSV)
+    df = pd.read_csv(TEST_CSV, encoding='utf-8')
     print(f"Loaded {len(df)} test episodes")
     return df
 
@@ -148,8 +148,8 @@ def load_test_episodes(test_df: pd.DataFrame, action_type_map: Dict = None) -> T
             print(f"Warning: {full_path} not found")
             continue
         
-        # CSV 파일 로드
-        episode_df = pd.read_csv(full_path)
+        # CSV 파일 로드 (UTF-8 인코딩, 대회 규칙 준수)
+        episode_df = pd.read_csv(full_path, encoding='utf-8')
         
         # 특징 생성 (action_type_map 전달)
         episode_df, _ = create_features(episode_df, action_type_map)
