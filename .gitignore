@@ -15,10 +15,10 @@ models/
 *.pt
 *.pkl
 
-# 데이터 파일 (용량이 크므로 제외)
-*.csv
-*.xlsx
-test/
+# 데이터 파일은 포함 (대회 데이터)
+# *.csv
+# *.xlsx
+# test/
 
 # IDE
 .vscode/
