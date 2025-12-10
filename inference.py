@@ -46,8 +46,10 @@ def inference():
             f"Model not found: {checkpoint_path}. Please train the model first using train.py"
         )
     
-    checkpoint = torch.load(checkpoint_path, map_location=device)
+    # PyTorch 2.6+ 호환성: StandardScaler를 포함한 checkpoint 로드를 위해 weights_only=False
+    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=False)
     action_type_map = checkpoint['action_type_map']
+    scaler = checkpoint.get('scaler', None)  # scaler가 없을 수도 있음 (이전 모델 호환)
     
     # 테스트 데이터 로드
     print("\n=== Loading Test Data ===")
@@ -56,10 +58,14 @@ def inference():
     # 테스트 에피소드 로드 및 전처리
     # 각 에피소드는 독립적으로 처리됨 (Data Leakage 방지)
     print("\n=== Processing Test Episodes ===")
-    sequences, episode_ids = load_test_episodes(test_df, action_type_map)
+    sequences, episode_ids = load_test_episodes(test_df, action_type_map, scaler)
     
     # 모델 초기화
     input_dim = sequences.shape[2]
+    print(f"Input dimension: {input_dim}")
+    print(f"Sequences shape: {sequences.shape}")
+    print(f"Sequences stats: min={sequences.min():.4f}, max={sequences.max():.4f}, mean={sequences.mean():.4f}, NaN count={np.isnan(sequences).sum()}")
+    
     model = PassPredictor(input_dim=input_dim).to(device)
     model.load_state_dict(checkpoint['model_state_dict'])
     model.eval()
@@ -74,10 +80,32 @@ def inference():
             batch_sequences = sequences[i:i+batch_size]
             batch_sequences = torch.FloatTensor(batch_sequences).to(device)
             
+            # 입력 확인
+            if i == 0:
+                print(f"First batch shape: {batch_sequences.shape}")
+                print(f"First batch stats: min={batch_sequences.min():.4f}, max={batch_sequences.max():.4f}, mean={batch_sequences.mean():.4f}")
+                print(f"First batch NaN count: {torch.isnan(batch_sequences).sum().item()}")
+            
             outputs = model(batch_sequences)
+            
+            # 출력 확인
+            if i == 0:
+                print(f"First output shape: {outputs.shape}")
+                print(f"First output: {outputs[0].cpu().numpy()}")
+                print(f"Output stats: min={outputs.min():.4f}, max={outputs.max():.4f}, mean={outputs.mean():.4f}")
+                print(f"Output NaN count: {torch.isnan(outputs).sum().item()}")
+            
             predictions.append(outputs.cpu().numpy())
     
     predictions = np.vstack(predictions)
+    
+    # 모델 출력 확인
+    print(f"\n=== Model Output Statistics ===")
+    print(f"Predictions shape: {predictions.shape}")
+    print(f"end_x range: [{predictions[:, 0].min():.4f}, {predictions[:, 0].max():.4f}], mean: {predictions[:, 0].mean():.4f}")
+    print(f"end_y range: [{predictions[:, 1].min():.4f}, {predictions[:, 1].max():.4f}], mean: {predictions[:, 1].mean():.4f}")
+    print(f"Unique end_x values: {len(np.unique(predictions[:, 0]))}")
+    print(f"Unique end_y values: {len(np.unique(predictions[:, 1]))}")
     
     # 제출 파일 생성
     print("\n=== Creating Submission File ===")

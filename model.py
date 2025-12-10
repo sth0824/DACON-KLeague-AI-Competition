@@ -34,10 +34,13 @@ class PassPredictor(nn.Module):
             batch_first=True
         )
         
-        # 출력 레이어
+        # 출력 레이어 (개선: 배치 정규화 추가)
         self.fc1 = nn.Linear(hidden_dim, hidden_dim // 2)
+        self.bn1 = nn.BatchNorm1d(hidden_dim // 2)
         self.dropout = nn.Dropout(dropout)
-        self.fc2 = nn.Linear(hidden_dim // 2, 2)  # end_x, end_y
+        self.fc2 = nn.Linear(hidden_dim // 2, hidden_dim // 4)
+        self.bn2 = nn.BatchNorm1d(hidden_dim // 4)
+        self.fc3 = nn.Linear(hidden_dim // 4, 2)  # end_x, end_y
         
     def forward(self, x):
         # x shape: (batch_size, sequence_length, input_dim)
@@ -53,11 +56,18 @@ class PassPredictor(nn.Module):
         # 마지막 타임스텝 사용
         last_hidden = attn_out[:, -1, :]  # (batch_size, hidden_dim)
         
-        # Fully connected layers
+        # Fully connected layers (개선: 더 깊은 네트워크)
         out = self.fc1(last_hidden)
+        out = self.bn1(out)
         out = F.relu(out)
         out = self.dropout(out)
-        out = self.fc2(out)  # (batch_size, 2)
+        
+        out = self.fc2(out)
+        out = self.bn2(out)
+        out = F.relu(out)
+        out = self.dropout(out)
+        
+        out = self.fc3(out)  # (batch_size, 2)
         
         return out
 

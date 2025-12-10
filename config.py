@@ -15,15 +15,15 @@ TEST_DIR = os.path.join(DATA_DIR, "test")
 MODEL_DIR = "models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-# 하이퍼파라미터
+# 하이퍼파라미터 (대폭 개선 설정)
 SEQUENCE_LENGTH = 50  # 시퀀스 길이 (패딩/트렁케이션)
-HIDDEN_DIM = 128
-NUM_LAYERS = 2
-DROPOUT = 0.3
-LEARNING_RATE = 0.001
-BATCH_SIZE = 32
-NUM_EPOCHS = 20
-EARLY_STOPPING_PATIENCE = 5
+HIDDEN_DIM = 512  # 대폭 증가: 더 큰 표현력
+NUM_LAYERS = 4  # 더 깊은 네트워크
+DROPOUT = 0.4  # 과적합 방지 강화
+LEARNING_RATE = 0.0003  # 더 작은 학습률
+BATCH_SIZE = 64  # 배치 크기 증가 (더 안정적)
+NUM_EPOCHS = 40  # 1시간 내 완료를 위해 조정
+EARLY_STOPPING_PATIENCE = 7  # 적절한 기회
 
 # 특징 설정
 FEATURE_COLS = [

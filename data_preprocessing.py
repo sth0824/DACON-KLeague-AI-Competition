@@ -3,8 +3,10 @@
 """
 import pandas as pd
 import numpy as np
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Optional
 import os
+from sklearn.preprocessing import StandardScaler
+import pickle
 from config import *
 
 def load_train_data() -> pd.DataFrame:
@@ -48,10 +50,49 @@ def create_features(df: pd.DataFrame, action_type_map: Dict = None) -> Tuple[pd.
     
     # 각도 계산 (라디안)
     df['angle'] = np.arctan2(df['dy'], df['dx'])
+    # 각도 NaN 처리 (dx, dy가 모두 0인 경우)
+    df['angle'] = df['angle'].fillna(0)
     
     # 시간 차이 계산 (에피소드 내에서)
     df = df.sort_values(['game_episode', 'time_seconds'])
     df['time_diff'] = df.groupby('game_episode')['time_seconds'].diff().fillna(0)
+    
+    # 추가 특징: 속도 (거리/시간)
+    df['velocity'] = df['distance'] / (df['time_diff'] + 1e-6)  # 0으로 나누기 방지
+    df['velocity'] = df['velocity'].clip(-100, 100)  # 이상치 제거
+    
+    # 추가 특징: 상대적 위치 (필드 크기 대비)
+    df['start_x_norm'] = df['start_x'] / FIELD_LENGTH
+    df['start_y_norm'] = df['start_y'] / FIELD_WIDTH
+    df['end_x_norm'] = df['end_x'] / FIELD_LENGTH
+    df['end_y_norm'] = df['end_y'] / FIELD_WIDTH
+    
+    # 추가 특징: 공격 방향 (전방 패스 여부)
+    df['forward_pass'] = (df['dx'] > 0).astype(int)
+    
+    # 추가 특징: 누적 통계 (에피소드 내)
+    df['cumsum_distance'] = df.groupby('game_episode')['distance'].cumsum()
+    df['cumsum_forward'] = df.groupby('game_episode')['forward_pass'].cumsum()
+    
+    # 추가 특징: 이동 평균 (최근 3개 액션)
+    df['ma3_dx'] = df.groupby('game_episode')['dx'].rolling(3, min_periods=1).mean().reset_index(0, drop=True)
+    df['ma3_dy'] = df.groupby('game_episode')['dy'].rolling(3, min_periods=1).mean().reset_index(0, drop=True)
+    
+    # 추가 특징: 필드 구역 (3x3 그리드)
+    df['zone_x'] = pd.cut(df['start_x'], bins=3, labels=[0, 1, 2]).astype(int)
+    df['zone_y'] = pd.cut(df['start_y'], bins=3, labels=[0, 1, 2]).astype(int)
+    
+    # 추가 특징: 패스 길이 카테고리 (짧은/중간/긴 패스)
+    # NaN을 먼저 처리한 후 카테고리 생성
+    distance_filled = df['distance'].fillna(0)
+    df['pass_length_category'] = pd.cut(
+        distance_filled, 
+        bins=[-1, 10, 25, float('inf')], 
+        labels=[0, 1, 2],
+        include_lowest=True
+    )
+    # NaN 처리 (cut 결과가 NaN인 경우 0으로 설정)
+    df['pass_length_category'] = df['pass_length_category'].fillna(0).astype(int)
     
     # is_home을 숫자로 변환
     df['is_home'] = df['is_home'].astype(int)
@@ -67,7 +108,8 @@ def create_features(df: pd.DataFrame, action_type_map: Dict = None) -> Tuple[pd.
     return df, action_type_map
 
 def prepare_sequences(df: pd.DataFrame, action_type_map: Dict, 
-                     is_train: bool = True) -> Tuple[np.ndarray, np.ndarray, List[str]]:
+                     scaler: Optional[StandardScaler] = None,
+                     is_train: bool = True) -> Tuple[np.ndarray, np.ndarray, List[str], Optional[StandardScaler]]:
     """
     시퀀스 데이터 준비
     각 에피소드를 독립적인 시퀀스로 변환
@@ -80,13 +122,28 @@ def prepare_sequences(df: pd.DataFrame, action_type_map: Dict,
     for episode_id, group in df.groupby('game_episode'):
         group = group.sort_values('time_seconds').reset_index(drop=True)
         
-        # 특징 선택
-        feature_cols = ['start_x', 'start_y', 'end_x', 'end_y',
-                       'time_seconds', 'is_home',
-                       'action_type_encoded', 'result_encoded',
-                       'dx', 'dy', 'distance', 'angle', 'time_diff']
+        # 특징 선택 (대폭 확장된 특징 세트)
+        feature_cols = [
+            'start_x', 'start_y', 'end_x', 'end_y',
+            'start_x_norm', 'start_y_norm', 'end_x_norm', 'end_y_norm',
+            'time_seconds', 'is_home',
+            'action_type_encoded', 'result_encoded',
+            'dx', 'dy', 'distance', 'angle', 'time_diff',
+            'velocity', 'forward_pass', 'pass_length_category',
+            'cumsum_distance', 'cumsum_forward',
+            'ma3_dx', 'ma3_dy',
+            'zone_x', 'zone_y'
+        ]
         
-        features = group[feature_cols].values
+        # 없는 컬럼은 스킵
+        available_cols = [col for col in feature_cols if col in group.columns]
+        features = group[available_cols].values
+        
+        # 누락된 특징은 0으로 채우기
+        if len(available_cols) < len(feature_cols):
+            missing_cols = len(feature_cols) - len(available_cols)
+            padding = np.zeros((features.shape[0], missing_cols))
+            features = np.hstack([features, padding])
         
         # 타겟: 마지막 액션의 end_x, end_y
         if is_train:
@@ -118,13 +175,34 @@ def prepare_sequences(df: pd.DataFrame, action_type_map: Dict,
     sequences = np.array(sequences)
     targets = np.array(targets)
     
+    # NaN 처리 (정규화 전에)
+    sequences = np.nan_to_num(sequences, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # 데이터 정규화 (타겟 제외)
+    if scaler is None and is_train:
+        # 학습 데이터: 새로운 scaler 생성
+        n_samples, n_timesteps, n_features = sequences.shape
+        sequences_2d = sequences.reshape(-1, n_features)
+        scaler = StandardScaler()
+        sequences_scaled = scaler.fit_transform(sequences_2d)
+        sequences = sequences_scaled.reshape(n_samples, n_timesteps, n_features)
+    elif scaler is not None:
+        # 테스트 데이터: 학습 시 사용한 scaler 적용
+        n_samples, n_timesteps, n_features = sequences.shape
+        sequences_2d = sequences.reshape(-1, n_features)
+        # NaN 처리
+        sequences_2d = np.nan_to_num(sequences_2d, nan=0.0, posinf=0.0, neginf=0.0)
+        sequences_scaled = scaler.transform(sequences_2d)
+        sequences = sequences_scaled.reshape(n_samples, n_timesteps, n_features)
+    
     print(f"Prepared {len(sequences)} sequences")
     print(f"Sequence shape: {sequences.shape}")
     print(f"Target shape: {targets.shape}")
     
-    return sequences, targets, episode_ids
+    return sequences, targets, episode_ids, scaler
 
-def load_test_episodes(test_df: pd.DataFrame, action_type_map: Dict = None) -> Tuple[np.ndarray, List[str]]:
+def load_test_episodes(test_df: pd.DataFrame, action_type_map: Dict = None, 
+                      scaler: Optional[StandardScaler] = None) -> Tuple[np.ndarray, List[str]]:
     """테스트 에피소드 로드 및 전처리"""
     sequences = []
     episode_ids = []
@@ -154,13 +232,28 @@ def load_test_episodes(test_df: pd.DataFrame, action_type_map: Dict = None) -> T
         # 특징 생성 (action_type_map 전달)
         episode_df, _ = create_features(episode_df, action_type_map)
         
-        # 시퀀스 준비
-        feature_cols = ['start_x', 'start_y', 'end_x', 'end_y',
-                       'time_seconds', 'is_home',
-                       'action_type_encoded', 'result_encoded',
-                       'dx', 'dy', 'distance', 'angle', 'time_diff']
+        # 시퀀스 준비 (학습과 동일한 확장된 특징 세트)
+        feature_cols = [
+            'start_x', 'start_y', 'end_x', 'end_y',
+            'start_x_norm', 'start_y_norm', 'end_x_norm', 'end_y_norm',
+            'time_seconds', 'is_home',
+            'action_type_encoded', 'result_encoded',
+            'dx', 'dy', 'distance', 'angle', 'time_diff',
+            'velocity', 'forward_pass', 'pass_length_category',
+            'cumsum_distance', 'cumsum_forward',
+            'ma3_dx', 'ma3_dy',
+            'zone_x', 'zone_y'
+        ]
         
-        features = episode_df[feature_cols].values
+        # 없는 컬럼은 스킵
+        available_cols = [col for col in feature_cols if col in episode_df.columns]
+        features = episode_df[available_cols].values
+        
+        # 누락된 특징은 0으로 채우기
+        if len(available_cols) < len(feature_cols):
+            missing_cols = len(feature_cols) - len(available_cols)
+            padding = np.zeros((features.shape[0], missing_cols))
+            features = np.hstack([features, padding])
         
         # 패딩 또는 트렁케이션
         if len(features) < SEQUENCE_LENGTH:
@@ -173,6 +266,19 @@ def load_test_episodes(test_df: pd.DataFrame, action_type_map: Dict = None) -> T
         episode_ids.append(episode_id)
     
     sequences = np.array(sequences)
+    
+    # NaN 처리
+    sequences = np.nan_to_num(sequences, nan=0.0, posinf=0.0, neginf=0.0)
+    
+    # 정규화 적용 (학습 시 사용한 scaler)
+    if scaler is not None:
+        n_samples, n_timesteps, n_features = sequences.shape
+        sequences_2d = sequences.reshape(-1, n_features)
+        # NaN 처리 (추가 안전장치)
+        sequences_2d = np.nan_to_num(sequences_2d, nan=0.0, posinf=0.0, neginf=0.0)
+        sequences_scaled = scaler.transform(sequences_2d)
+        sequences = sequences_scaled.reshape(n_samples, n_timesteps, n_features)
+    
     print(f"Loaded {len(sequences)} test sequences")
     
     return sequences, episode_ids
