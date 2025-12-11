@@ -4,7 +4,9 @@
 import os
 
 # 데이터 경로
-DATA_DIR = "."
+# Colab 사용 시: DATA_DIR = "/content" 또는 "/content/drive/MyDrive/..."
+# 로컬 사용 시: DATA_DIR = "."
+DATA_DIR = os.environ.get('COLAB_DATA_DIR', ".")  # Colab 환경 변수로 설정 가능
 TRAIN_CSV = os.path.join(DATA_DIR, "train.csv")
 TEST_CSV = os.path.join(DATA_DIR, "test.csv")
 MATCH_INFO_CSV = os.path.join(DATA_DIR, "match_info.csv")
