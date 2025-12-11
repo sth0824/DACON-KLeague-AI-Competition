@@ -46,16 +46,21 @@ python inference.py
 
 ## 모델 구조
 
-- **기본 아키텍처**: LSTM (Long Short-Term Memory)
-- **입력**: 시계열 액션 데이터 (시퀀스 길이: 50)
+- **기본 아키텍처**: LSTM + GRU 앙상블 (양방향)
+- **입력**: 시계열 액션 데이터 (시퀀스 길이: 50, 특징 26개)
 - **출력**: 마지막 패스의 도착 좌표 (end_x, end_y)
 
-### 특징 (Features)
+### 특징 (Features) - 26개
 
 - 좌표 정보: start_x, start_y, end_x, end_y
+- 정규화 좌표: start_x_norm, start_y_norm, end_x_norm, end_y_norm
 - 시간 정보: time_seconds, time_diff
 - 액션 정보: action_type, result
-- 계산된 특징: dx, dy, distance, angle
+- 계산된 특징: dx, dy, distance, angle, velocity
+- 패턴 특징: forward_pass, pass_length_category
+- 누적 통계: cumsum_distance, cumsum_forward
+- 이동 평균: ma3_dx, ma3_dy
+- 필드 구역: zone_x, zone_y
 - 팀 정보: is_home
 
 ## 하이퍼파라미터
@@ -63,11 +68,13 @@ python inference.py
 설정은 `config.py`에서 변경할 수 있습니다:
 
 - `SEQUENCE_LENGTH`: 50 (시퀀스 길이)
-- `HIDDEN_DIM`: 128 (LSTM hidden dimension)
-- `NUM_LAYERS`: 2 (LSTM 레이어 수)
-- `BATCH_SIZE`: 32
-- `LEARNING_RATE`: 0.001
-- `NUM_EPOCHS`: 20
+- `HIDDEN_DIM`: 512 (LSTM/GRU hidden dimension)
+- `NUM_LAYERS`: 4 (레이어 수)
+- `BATCH_SIZE`: 64
+- `LEARNING_RATE`: 0.0003
+- `NUM_EPOCHS`: 40
+- 손실 함수: SmoothL1Loss (Huber Loss)
+- 옵티마이저: AdamW
 
 ## 평가 방식
 
