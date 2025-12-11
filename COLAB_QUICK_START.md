@@ -28,9 +28,9 @@
    - `sample_submission.csv`
    - `config.py`
    - `data_preprocessing.py`
-   - `model_improved.py`
-   - `train_improved.py`
-   - `inference_improved.py`
+   - `model.py`
+   - `train.py`
+   - `inference.py`
    - `test/` 폴더 전체 (압축 후 업로드 가능)
 
 **방법 B: Google Drive 사용 (대용량 권장)**
@@ -48,7 +48,7 @@
 3. GPU 사용 시 훨씬 빠름!
 
 ### 5단계: 결과 다운로드
-- 학습 완료 후 `submission_improved.csv` 자동 다운로드
+- 학습 완료 후 `submission.csv` 자동 다운로드
 
 ## ⚡ 빠른 체크리스트
 
